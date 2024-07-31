@@ -1,4 +1,3 @@
-﻿plant,treatment,day,Pyruvic acid methyl ester,Tween 40,Tween 80,Alpha-cyclodextrin,Glycogen,D-Cellobiose,alpha-D-Lactose,Beta-Methyl-D-Glucoside,D-Xylose,I-Erythritol,D-Mannitol,N-Acetyl-D-Glucosamine,D-Glucosaminic acid,Glucose-1-phosphate,"D,L-alpha-glycerol phosphate",D-Galactonic acid gamma-Lactone,D-Galacturonic acid,2-Hydroxy benzoic acid,4-Hydroxy benzoic acid,gamma-Hydroxybutyric acid,Itaconic acid,alpha-Ketobutyric acid,D-Malic acid,L-Arginine,L-Asparagine,L-Phenylalanine,L-Serine,L-Threonine,Glycyl-L-glutamic acid,Phenylethylamine,Putrescine
-M01V1,M01V1,0,0.349,0.373,0.549,0.441,0.406,0.374,0.392,0.483,0.321,0.2,0.702,1.006,0.304,0.44,0.771,0.264,0.338,-0.061,0.33,0.52,0.67,0.192,0.724,0.213,0.755,0.244,0.571,0.482,0.472,0.364,0.492
-M06V1,M06V1,0,0.884,1.196,0.746,0.835,0.114,0.925,1.072,1.684,0.566,0.352,0.834,2.002,0.583,0.202,0.788,0.966,1.493,-0.076,0.588,0.646,0.51,0.1,1.227,0.758,1.341,0.35,0.876,0.078,0.258,0.451,0.784
-M09V1,M09V1,0,0.759,1.384,0.832,1.06,0.13,0.614,0.796,0.975,0.693,0.149,1.015,1.926,1.018,0.171,0.822,1.219,1.536,-0.064,0.697,0.911,0.6,0.133,1.123,0.621,1.322,0.485,0.82,0.077,0.407,0.379,0.773
+version https://git-lfs.github.com/spec/v1
+oid sha256:4ad5d5d9fe7aa1d145a64292cad469d6d85356b0d2042caa7cc645de9cf2406f
+size 1151

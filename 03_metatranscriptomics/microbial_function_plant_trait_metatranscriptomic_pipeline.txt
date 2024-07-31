@@ -1,0 +1,293 @@
+28 metatranscriptomic samples (27 samples and one negative control) (RNA#_Plant_Treatment_week) forward and reverse = 56 files
+
+#### TRIMMING ####
+# Load the FastQC modue
+module load fastqc/0.12.1
+
+# Set the input directory and output directory (change this as needed)
+input_dir=/bsuhome/jessicabernardin/scratch/03_Exp1_metagenomics/03_Trim/RNA
+output_dir=/bsuhome/jessicabernardin/scratch/03_Exp1_metagenomics/03_Trim/RNA
+
+# Loop through all files in the input directory with the extension *fq.gz
+for file in ${input_dir}/*fq; do
+  # Run FastQC on the file
+  fastqc ${file} --outdir ${output_dir}
+done
+
+mamba install multiqc
+multiqc .
+
+module load trimmomatic
+for infile in *_1.fq.gz
+    do base=$(basename ${infile} _1.fq.gz)
+    java -jar $TRIM_JAR PE -threads 2 ${infile} ${base}_2.fq.gz ${base}_1.trim.fastq.gz ${base}_1un.trim.fastq.gz ${base}_2.trim.fastq.gz ${base}_2un.trim.fastq.gz SLIDINGWINDOW:4:20 MINLEN:25 ILLUMINACLIP:TruSeq3-PE.fa:2:40:15
+    
+#### RRNA REMOVAL WITH RIBODETECTOR ####
+# set path to input files and output directory
+DIR=/bsuhome/jessicabernardin/scratch/03_Exp1_metagenomics/03_Trim/RNA/paired
+
+for file in *_1.trim.fastq.gz
+    do base=$(basename ${file} _1.trim.fastq.gz)
+ribodetector_cpu  -t 20 \
+-l 150 \
+-i ${file} ${base}_2.trim.fastq.gz \
+-e rrna \
+-o ${base}_nonrrna_1.fq ${base}_nonrrna_2.fq
+done
+
+#the following samples had low reads so they were removed from the coassembly
+RNA5_P3_M01_WK4_nonrrna_1 (Sample A, Week 3): This sample has a total of 64,114 reads, which is relatively low compared to others.
+RNA9_P13_M01_WK9_nonrrna_1 and 2 (Sample A, Week 8): This sample has a total of 22,094 reads, which is quite low.
+RNA10_P5_M06_WK1_nonrrna_1 and 2 (Sample B, Week 0): This sample has a total of 30,310 reads, which is also relatively low.
+RNA18_P45_M06_WK9_nonrrna_1 and 2  (Sample B, Week 8): This sample has only 1 read, which is effectively unusable.
+RNA28_neg_nonrrna_1 and 2 (Negative control)
+
+
+#### COASSEMBLY WITH MEGAHIT ####
+https://merenlab.org/tutorials/assembly-based-metagenomics/#co-assembly
+
+In the Trim RNA no rRNA folder
+
+R1s=`ls *_1.* | python -c 'import sys; print(",".join([x.strip() for x in sys.stdin.readlines()]))'`
+echo $R1s
+
+R2s=`ls *_2.* | python -c 'import sys; print(",".join([x.strip() for x in sys.stdin.readlines()]))'`
+echo $R2s
+
+mamba create --name megahit megahit
+conda activate megahit
+megahit -1 $R1s -2 $R2s -m 0.85 -o ../../../07_coassembly/metaT_filt -t 20
+
+####QUAST####
+mamba create --name quast quast	
+mamba activate quast
+metaquast -o metaquast_output ../07_coassembly/metaT_filtered/final.contigs.metatfilt.fa
+
+
+####SEQKIT####
+mamba create --name seqkit seqkit
+mamba activate seqkit
+seqkit stats final.contigs.metatfilt.fa
+
+###before chimera removal
+#file                        format  type  num_seqs      sum_len  min_len  avg_len  max_len
+#final.contigs.metatfilt.fa  FASTA   DNA    144,036  158,191,479      200  1,098.3  113,551
+
+#remove chimeras
+mamba install vsearch
+vsearch --uchime_denovo final.contigs.metatfilt.fa --nonchimeras non_chimeras.fa --chimeras chimeras.fa
+
+Reading file final.contigs.metatfilt.fa 100%  
+156464284 nt in 144013 seqs, min 200, max 49104, avg 1086
+maxseqlength 50000: 23 sequences discarded.
+Masking 100% 
+Sorting by abundance 100%
+Counting k-mers 100% 
+Detecting chimeras 100%  
+Found 0 (0.0%) chimeras, 144013 (100.0%) non-chimeras,
+and 0 (0.0%) borderline sequences in 144013 unique sequences.
+Taking abundance information into account, this corresponds to
+0 (0.0%) chimeras, 144013 (100.0%) non-chimeras,
+and 0 (0.0%) borderline sequences in 144013 total sequences.
+
+###after chimera removal
+seqkit stats non_chimeras.fa
+file             format  type  num_seqs      sum_len  min_len  avg_len  max_len
+non_chimeras.fa  FASTA   DNA    144,013  156,464,284      200  1,086.5   49,104
+#144013 contains or sequences
+
+#### PRODIGAL #### 
+mamba create --name prodigal prodigal
+conda activate prodigal
+#In the trim folder
+mv low_read_samples/*.fq .
+sbatch prodigal.sh
+
+prodigal -a metaTfilt2.contigs.faa -d metaTfilt2.contigs.fna -i ../../07_coassembly/metaT_filtered/non_chimeras.fa  -o metaTfilt2.contigs.gff -p meta
+
+
+[jessicabernardin@borah-login metaT_filt]$ grep -c ">" metaTfilt2.contigs.fna
+237091
+[jessicabernardin@borah-login metaT_filt]$ grep -c ">" metaTfilt2.contigs.faa
+237091
+
+#### CD HIT ####
+mamba create --name cdhit cd-hit
+mamba activate cdhit
+
+###faa file
+cd-hit -i metaTfilt2.contigs.faa -o metaTfilt2_faa_cdhit.faa -c 0.95 -n 5 -M 8000 -T 8
+
+
+grep -c ">" metaTfilt.contigs_cdhit
+227260
+
+grep '*' metaTfilt2_faa_cdhit.faa.clstr | awk -F '[>.]' '{print $2}' > representative_ids.txt
+
+wc -l representative_ids.txt 
+#225,735 representative_ids.txt
+
+awk 'NR==FNR{id[$1];next} /^>/{f=0} f; $1 in id{print; f=1}' representative_ids.txt metaTfilt2.contigs.fna > cdhit_filtered_file.fna
+
+###fna file
+cd-hit-est -i metaTfilt2.contigs.fna -o metaTfilt2_fna_cdhit.fna -c 0.95 -n 5 -M 8000 -T 8
+#231,402
+
+
+#### Kallisto #### 
+https://pachterlab.github.io/kallisto/starting.html
+
+mamba create --name kallisto
+mamba activate kallisto
+mamba install kallisto
+mamba update kallisto
+mkdir 10_Kallisto
+
+kallisto index -i transcripts_fna.idx metaTfilt2.contigs.fna
+
+for file in *_nonrrna_1.fq; do
+    mate_file="${file/_nonrrna_1.fq/_nonrrna_2.fq}"
+    sample_name="${file%_nonrrna_1.fq}"
+    kallisto quant -i transcripts_fna.idx -o "${sample_name}-aligned" "$file" "$mate_file"
+done
+
+
+#all files have 237092 rows
+
+#merge into one tsv
+paste */abundance.tsv | cut -f 1,2,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100,105,110,115,120,125,130,135,140 > transcript_tpms_all_samples.tsv
+ls -1 */abundance.tsv | perl -ne 'chomp $_; if ($_ =~ /(\S+)\/abundance\.tsv/){print "\t$1"}' | perl -ne 'print "target_id\tlength$_\n"' > header.tsv
+cat header.tsv transcript_tpms_all_samples.tsv | grep -v "tpm" > transcript_tpms_all_samples.tsv2
+mv transcript_tpms_all_samples.tsv2 transcript_tpms_all_samples.tsv
+rm -f header.tsv
+
+#do again but for counts
+paste */abundance.tsv | cut -f 1,2,4,9,14,19,24,29,34,39,44,49,54,59,64,69,74,79,84,89,94,99,104,109,114,119,124,129,134,139 > transcript_counts2_all_samples.tsv
+ls -1 */abundance.tsv | perl -ne 'chomp $_; if ($_ =~ /(\S+)\/abundance\.tsv/){print "\t$1"}' | perl -ne 'print "target_id\tlength$_\n"' > header.tsv
+cat header.tsv transcript_counts2_all_samples.tsv | grep -v "est_counts" > transcript_counts2_all_samples.tsv2
+mv transcript_counts2_all_samples.tsv2 transcript_counts2_all_samples.tsv
+rm -f header.tsv
+
+#https://github.com/python/cpython/blob/main/Lib/statistics.py
+python3 stats.py
+
+###updated stats based on quantification using fna file
+Total abundance for each sample:
+Sample 1: 25105.000071218175
+Sample 2: 1914247.979910932
+Sample 3: 1505273.0522887802
+Sample 4: 1613260.0014437337
+Sample 5: 1174988.9603816923
+Sample 6: 1031139.9842866791
+Sample 7: 870859.0045447391
+Sample 8: 460774.99610270624
+Sample 9: 1.0
+Sample 10: 1766892.0232392177
+Sample 11: 685359.0003993297
+Sample 12: 1669109.9739264075
+Sample 13: 2259036.9398629228
+Sample 14: 1026617.0055281419
+Sample 15: 953311.0112445982
+Sample 16: 600842.999122317
+Sample 17: 890889.9900056613
+Sample 18: 565647.0086083438
+Sample 19: 1106343.9974726923
+Sample 20: 753295.0158719904
+Sample 21: 856814.9969907044
+Sample 22: 2061554.025600776
+Sample 23: 50624.99942402296
+Sample 24: 1046893.0242827501
+Sample 25: 1410311.9893440383
+Sample 26: 725775.0192080609
+Sample 27: 15507.999960362264
+
+Average gene length: 608.4687137284151
+
+Number of genes with length:
+<500 bp: 131173
+500-2000 bp: 102542
+2000-5000 bp: 4852
+5000-10000 bp: 76
+>10000 bp: 8
+
+
+
+#### KOFAMSCAN #### 
+#https://taylorreiter.github.io/2019-05-11-kofamscan/
+wget ftp://ftp.genome.jp/pub/db/kofam/ko_list.gz		# download the ko list 
+wget ftp://ftp.genome.jp/pub/db/kofam/profiles.tar.gz 		# download the hmm profiles
+wget ftp://ftp.genome.jp/pub/tools/kofam_scan/kofam_scan-1.3.0.tar.gz # download kofamscan tool
+wget ftp://ftp.genome.jp/pub/tools/kofamscan/README.md		# download README
+
+#note: the profiles and ko_list need to downloaded at the same time or they don't match and will throw and error that KOs are "unknown"
+
+gunzip ko_list.gz
+tar xf profiles.tar.gz
+tar xf kofam_scan-1.3.0.tar.gz
+
+mamba create -n kofamscan kofamscan hmmer parallel
+mamba activate kofamscan
+mamba install -c conda-forge ruby
+
+vim config.yml
+# Path to your KO-HMM database
+# A database can be a .hmm file, a .hal file or a directory in which
+# .hmm files are. Omit the extension if it is .hal or .hmm file
+profile: ./profiles
+
+# Path to the KO list file
+ko_list: /bsuhome/jessicabernardin/miniconda3/pkgs/kofamscan-1.3.0-hdfd78af_2/bin/ko_list
+
+# Path to an executable file of hmmsearch
+# You do not have to set this if it is in your $PATH
+hmmsearch: /bsuhome/jessicabernardin/miniconda3/envs/kofamscan/bin/hmmsearch
+
+# Path to an executable file of GNU parallel
+# You do not have to set this if it is in your $PATH
+parallel: /bsuhome/jessicabernardin/miniconda3/envs/kofamscan/bin/parallel
+
+# Number of hmmsearch processes to be run parallelly
+cpu: 48
+
+
+kofamscan.sh
+
+# Activate the conda environment
+. ~/.bashrc
+mamba activate kofamscan
+
+# This was submitted from within the ~/scratch/kofamscan-test directory
+~/mambaforge/pkgs/kofamscan-1.3.0-hdfd78af_2/bin/exec_annotation -c config.yml -f mapper -o metaTfilt2.kofamscan_mapper.tsv metaTfilt2.contigs.faa
+
+#grep -c ">" *faa
+#237091
+
+#wc -l metaTfilt2.kofamscan_mapper.tsv 
+#239454 metaTfilt2.kofamscan_mapper.tsv
+
+#grep -c "K0" *tsv
+#68662
+
+-f detail-tsv
+
+moved kofamscan output to desktop
+opened R
+
+https://www.genome.jp/kegg-bin/get_htext?ko00001.keg
+
+or 
+
+wget 'https://www.genome.jp/kegg-bin/download_htext?htext=ko00001&format=htext&filedir=' -O ko00001.keg
+
+kegfile="ko00001.keg"
+while read -r prefix content
+do
+    case "$prefix" in A) col1="$content";; \
+                      B) col2="$content" ;; \
+                      C) col3="$content";; \
+                      D) echo -e "$col1\t$col2\t$col3\t$content";;
+    esac 
+done < <(sed '/^[#!+]/d;s/<[^>]*>//g;s/^./& /' < "$kegfile") > KO_Orthology_ko00001.txt
+
+bioawk -c fastx '{print $name, length($seq)}' < metaT.contigs.fna > metaT_contig_length
+
