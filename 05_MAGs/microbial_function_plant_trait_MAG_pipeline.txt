@@ -1,0 +1,263 @@
+18 metagenomic samples (DNA#_Plant_Treatment_week) forward and reverse = 36 files
+
+
+#### BINNING #### 
+#need raw read files and coassembly and mapped coassembly (metagenomic)
+
+
+mamba create --name binning -y -c conda-forge -c bioconda concoct maxbin2 metabat2 das_tool
+mamba activate binning
+
+## MAXBIN2 ##
+https://sourceforge.net/projects/maxbin2/files/
+
+for f in *_1.trim.fastq.gz
+do
+sample=$(basename "${f}" _1.trim.fastq.gz)
+    forward_reads="${sample}_1.trim.fastq.gz"
+    reverse_reads="${sample}_2.trim.fastq.gz"
+
+run_MaxBin.pl -thread 8 -contig ~/scratch/03_Exp1_metagenomics/07_coassembly/metaG/final.contigs.fa -reads "$forward_reads" -reads2 "$reverse_reads" -out ~/scratch/03_Exp1_metagenomics/08_Binning/maxbin/
+done
+
+
+## CONCOCT ##
+#The next step is then to cut contigs into smaller parts:
+cut_up_fasta.py ../../07_coassembly/metaG/final.contigs.fa -c 10000 -o 0 --merge_last -b contigs_10K.bed > contigs_10K.fa
+
+#Generate table with coverage depth information per sample and subcontig. This step assumes the directory ‘mapping’ contains sorted and indexed bam files where each sample has been mapped against the original contigs:
+concoct_coverage_table.py contigs_10K.bed ../../07_coassembly/metaG/Sample*.bam.bam > metaG.coverage_table.tsv
+concoct --composition_file contigs_10K.fa --coverage_file metaG.coverage_table.tsv -b concoct_output/
+
+#Merge subcontig clustering into original contig clustering:
+merge_cutup_clustering.py concoct_output/clustering_gt1000.csv > concoct_output/clustering_merged.csv
+
+#Extract bins as individual FASTA:
+mkdir concoct_output/fasta_bins
+extract_fasta_bins.py ../../07_coassembly/metaG/final.contigs.fa concoct_output/clustering_merged.csv --output_path concoct_output/fasta_bins
+
+PROBLEMS WITH STRING NAMES
+INSTALLED NEW CONCOCT ENVIRONMENT USING CONCOCT.YAML
+TRYING AGAIN
+
+Had to edit the env .py
+
+in mamba_forge/envs/concoct/lib/python3.10/site-packages/sklearn/utils/validation.py.
+on line 1858 I changed the following:
+feature_names = np.asarray(X.columns, dtype=object) to
+feature_names = np.asarray(X.columns.astype(str), dtype=object)
+
+
+## METABAT2 ##
+runMetaBat.sh ../../07_coassembly/metaG/final.contigs.fa ../../07_coassembly/metaG/*.bam.bam
+
+#### CHECKM ####
+conda create -n checkm python=3.9
+conda activate checkm
+conda install -c bioconda numpy matplotlib pysam
+conda install -c bioconda hmmer prodigal pplacer
+pip3 install checkm-genome
+
+
+checkm taxonomy_wf domain Bacteria -x fasta MAXBIN/ CHECKM/
+
+#### CHECKM2 ####
+mamba create -n checkm2 -c bioconda -c conda-forge checkm2
+conda activate checkm2
+checkm2 database --download
+checkm2 predict --threads 30 --input ../dastool/Run2/bins/*.fa --output-directory checkm2_dastool/
+
+
+
+#### DASTOOL ####
+https://github.com/cmks/DAS_Tool
+mamba activate binning
+
+#rename the bins (binner.number.fa)
+rename 0 maxbin. *fasta
+rename .fasta .fa *fasta
+
+for file in *.fa; do
+    new_name="concoct.$file"
+    mv "$file" "$new_name"
+done
+
+## do this for all three binners (maxbin, metabat, concoct)
+for file in *fa; do
+    filename=$(basename "$file")
+    sample=$(echo "$filename" | cut -d '_' -f 1) 
+    grep -E '^>' "$file" | sed "s/>//" | awk -v sample="$sample" '{print $1 "\t" sample}'
+done > metabat2_contig_list.txt
+
+#clean up assembly
+awk '/^>/ {sub(/ .*/, ""); print} /^[^>]/' ../../07_coassembly/metaG/final.contigs.fa > extracted_contigs.fa
+
+#run dastool
+
+mamba create --name dastool -y -c conda-forge -c bioconda das_tool
+mamba activate dastool
+
+#make sure no spaces after comma
+DAS_Tool  -i concoct.contigs2bin.tsv,metabat.contigs2bin.tsv,maxbin.contigs2bin.tsv -l concoct,metabat,maxbin -c extracted_contigs.final.fasta -o DASToolRun1
+
+
+#### RENAME EACH BIN/MAG ####
+
+# Loop through each MAG file and add the mag name after each header
+for input_file in *.fa; do
+    # Extract the filename without the extension
+    new_name="${input_file%.fa}"
+    
+    # Read the file line by line
+    while IFS= read -r line; do
+        # Check if the line is a header line
+        if [[ $line == ">"* ]]; then
+            # Modify the header by appending the new name
+            echo "$line"_"$new_name"
+        else
+            echo "$line"
+        fi
+    done < "$input_file" > modified_mags/"$new_name"_modified.fa
+done
+
+
+cat *_modified.fa > mag.combined.fa
+
+#### dREP ####
+mamba create -n drep
+mamba activate drep
+mamba install -c bioconda drep
+dRep compare drep_compare/ -g ../dastool/Run2/bins/*.fa
+
+#checkm not working, so activated checkm environment, installed drep inside this env and then ran
+dRep dereplicate derep/ -g ../../dastool/Run2/bins/*.fa
+
+mamba activate checkm2
+checkm2 predict --threads 30 --input dereplicated_genomes/*.fa --output-directory checkm2_derep_bins/
+
+
+
+#### MAPPING FUNCTIONS TO MAGS ####
+#get the predicted genes from prodigal or dream and filter the metatranscriptomic coassembly then do a blast
+
+mamba create -n blast 
+mamba activate blast
+mamba install -c bioconda blast
+mamba install -c conda-forge dos2unix
+
+#combine derep mag files
+cat *_modified.fa > mag.combined.fa
+
+#copy to blast folder
+mv mag.combined.fa ../../../../../../16_Blast_MAGS/
+
+#make a custom database using my MAGs
+makeblastdb -in mag.combined.fa -dbtype nucl -out mag.db
+
+#copy the metatranscriptomic fna over to blast folder
+cp metaTfilt2.contigs.fna ../../16_Blast_MAGS/
+
+blastn -db mag.db/mag.db -query metaTfilt2.contigs.fna -outfmt "6 qseqid sseqid pident bitscore evalue" -out blast_output.csv
+
+tr ' ' ',' < blast_output.csv > blast_output_formatted.csv
+
+wc -l blast_output_formatted.csv
+#263095 blast_output_formatted.csv
+
+
+#### MAG ABUNDANCE ####
+
+mamba create --name bwa bwa
+mamba activate bwa
+mamba install samtools
+mamba install featureCounts
+mamba install subready
+
+#index the mags
+for mag in *.fa; do
+  bwa index $mag
+done
+
+#map reads to mags, the script iterates through each MAG file and each sample, runs bwa mem to align the reads to the MAG, pipes the output to samtools view to convert it to BAM format, sorts the BAM file with samtools sort, and finally indexes the sorted BAM file with samtools index.
+
+read_dir="../../../../../../03_Trim/RNA/paired/norrna"
+
+for mag in *.fa; do
+  for sample in $(ls $read_dir/*_1.fq | sed 's/_1.fq//' | xargs -n 1 basename); do
+    bwa mem $mag ${read_dir}/${sample}_1.fq ${read_dir}/${sample}_2.fq | \
+    samtools view -Sb - | samtools sort -o ${sample}_$(basename $mag .fa).bam
+    samtools index ${sample}_$(basename $mag .fa).bam
+  done
+done
+
+
+for bam in *.bam; do
+  samtools idxstats $bam > $(basename $bam .bam)_counts.txt
+done
+
+
+echo -e "Sample\tMappedReadCount" > mapped_read_counts.txt
+
+for file in *.txt; do
+sample=$(basename "$file" .txt)
+sum=$(awk '{sum += $3} END {print sum}' "$file")
+echo -e "$sample\t$sum" >> mapped_read_counts.txt
+done
+MOVE TO R
+
+
+##try again but mapping to metagenomic samples instead
+read_dir="../../../../../../03_Trim/DNA/paired"
+
+for mag in *.fa; do
+  for sample in $(ls $read_dir/*_1.trim.fastq.gz | sed 's/_1.trim.fastq.gz//' | xargs -n 1 basename); do
+    bwa mem $mag ${read_dir}/${sample}_1.trim.fastq.gz ${read_dir}/${sample}_2.trim.fastq.gz | \
+    samtools view -Sb - | samtools sort -o ${sample}_$(basename $mag .fa).bam
+    samtools index ${sample}_$(basename $mag .fa).bam
+  done
+done
+
+for bam in *.bam; do
+  samtools idxstats $bam > $(basename $bam .bam)_counts.txt
+done
+
+for bam in *.bam; do
+  samtools idxstats $bam > $(basename $bam .bam)_counts.txt
+done
+
+
+echo -e "Sample\tMappedReadCount" > mapped_read_counts.txt
+
+for file in *.txt; do
+sample=$(basename "$file" .txt)
+sum=$(awk '{sum += $3} END {print sum}' "$file")
+echo -e "$sample\t$sum" >> mapped_read_counts.txt
+done
+MOVE TO R
+
+#### MAG PHYLOGENETIC TREE ####
+
+# EXTRACT MARKER GENES WITH CHECKM
+
+mamba activate checkm
+
+checkm lineage_wf -x fa dREP/drep_compare/derep/dereplicated_genomes/modified_drep_mags/ checkm_output
+checkm qa checkm_output/lineage.ms checkm_output
+
+#SEQUENCE ALIGNMENT
+mafft --auto concatenated.fasta > aligned_marker_genes.fasta
+
+
+#MAKE TREE
+iqtree -s aligned_marker_genes.fasta -m MFP -bb 1000 -nt AUTO
+
+
+
+
+
+
+
+
+
+
+
