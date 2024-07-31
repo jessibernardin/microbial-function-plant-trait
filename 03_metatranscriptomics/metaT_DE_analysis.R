@@ -172,7 +172,6 @@ kegg.f <- kegg.f %>%
 colnames(kegg.f) <- c("gene_name", "KO", "thrshld", "score", "E_value", "KO_definition")#174,370 unique transcripts mapped to one function
 
 
-write.csv(kegg.f, "../05_MAGs/kegg.f.csv")
 #read in KEGG orthology from website, has pathway info for the KEGGs
 KEGG_hier <- read.csv("KO_Orthology_ko00001.csv", header=FALSE) #https://merenlab.org/2018/01/17/importing-ghostkoala-annotations/
 names(KEGG_hier) <- c("L1", "L2", "L3", "L4")
