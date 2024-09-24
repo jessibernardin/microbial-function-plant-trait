@@ -1,5 +1,5 @@
-#### Microbial function mediates leaf traits in a pitcher plant model system ####
-#### Authors: Jessica R. Bernardin, Erica B. Young, Leonora S. Bittleston ####
+#### Bacterial function mediates leaf traits in a pitcher plant model system ####
+#### Authors: Jessica R. Bernardin, Erica B. Young, Sarah Gray, Leonora S. Bittleston ####
 #### last update : May 31, 2024 ####
 #### 16S Metabarcoding Analysis
 
@@ -365,6 +365,53 @@ ggplot(data_merge2, aes(x = MDS1, y = MDS2)) +
         panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2),
         legend.key=element_blank()) + 
   labs(x = "NMDS1", y = "NMDS2", color = "treatment")
+
+
+ggplot(data_merge2, aes(x = MDS1, y = MDS2, color = treatment, alpha = day)) + 
+  geom_point(size = 4) + 
+  scale_color_manual(values = c("#004488", "#ffaf49", "#44b7c2")) + 
+  scale_alpha_continuous(range = c(1,.3)) +  # Adjust range as needed
+  theme(axis.text.y = element_text(colour = "black", size = 12, face = "bold"), 
+        axis.text.x = element_text(colour = "black", face = "bold", size = 12), 
+        legend.text = element_text(size = 12, face = "bold", colour = "black"), 
+        legend.position = "right", axis.title.y = element_text(face = "bold", size = 14), 
+        axis.title.x = element_text(face = "bold", size = 14, colour = "black"), 
+        legend.title = element_text(size = 14, colour = "black", face = "bold"), 
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2), 
+        legend.key = element_blank()) + 
+  labs(x = "NMDS1", y = "NMDS2", color = "Treatment", alpha = "Day")+ 
+  stat_ellipse(aes(group = treatment), type = "norm", level = 0.95, linetype = 2)
+
+
+detach("package:plyr", unload=TRUE)
+centroids <- data_merge2 %>%
+  group_by(treatment) %>%
+  summarize(MDS1_centroid = mean(MDS1), MDS2_centroid = mean(MDS2))
+
+# Merge centroids with the original data
+data_merge2 <- data_merge2 %>%
+  left_join(centroids, by = "treatment")
+
+# Plot with centroid lines
+data_merge2$day<- as.factor(data_merge2$day)
+ggplot(data_merge2, aes(x = MDS1, y = MDS2, color = treatment)) +
+  geom_segment(aes(x = MDS1_centroid, y = MDS2_centroid, xend = MDS1, yend = MDS2), linetype = "solid", size=.3) + 
+  geom_point(size = 4, aes(alpha = day)) + 
+  scale_color_manual(values = c("#004488", "#ffaf49", "#44b7c2")) + 
+  scale_alpha_discrete(range = c(1,0.1)) +  # Adjust range as needed
+  theme(axis.text.y = element_text(colour = "black", size = 12, face = "bold"), 
+        axis.text.x = element_text(colour = "black", face = "bold", size = 12), 
+        legend.text = element_text(size = 12, face = "bold", colour = "black"), 
+        legend.position = "right", axis.title.y = element_text(face = "bold", size = 14), 
+        axis.title.x = element_text(face = "bold", size = 14, colour = "black"), 
+        legend.title = element_text(size = 14, colour = "black", face = "bold"), 
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2), 
+        legend.key = element_blank()) + 
+  labs(x = "NMDS1", y = "NMDS2", color = "Treatment", alpha = "Day")
+
+
+
+
 
 #### 16s adonis and mantel tests ####set margin to 2
 ad.16s.treat <- adonis2(uu.dist.16s.treat ~ data_merge2$treatment, by="margin")

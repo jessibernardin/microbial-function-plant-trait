@@ -41,6 +41,15 @@ m01v1 <- c(257, 255)
 m06v1 <- c(194, 216)
 m09v1 <- c(175, 216)
 
+treatment <- rep(c("m01v1", "m06v1", "m09v1"), each = 2)
+rep <- rep(c("rep1", "rep2"), times = 3)
+value <- c(257, 255, 194, 216, 175, 216)
+
+cfu <- data.frame(treatment = treatment, rep = rep, value = value)
+aov_cfu <- aov(value ~ treatment, data = cfu)
+summary(aov_cfu)
+mean(cfu$value)
+
 #### Microbial Functions of cultures prior to inoculation in planta ####
 #growth rates of inoculating cultures
 glm.growth_cult<- brm(growth_r ~ treatment, data= orig_enz_rkn, family=Gamma(link="log"), iter=10000)
@@ -58,8 +67,7 @@ data_summary <- function(data, varname, groupnames){
     c(mean = mean(x[[col]], na.rm=TRUE),
       sd = sd(x[[col]], na.rm=TRUE))
   }
-  data_sum<-ddply(data, groupnames, .fun=summary_func,
-                  varname)
+  data_sum<-ddply(data, groupnames, .fun=summary_func,varname)
   data_sum <- rename(data_sum, c("mean" = varname))
   return(data_sum)
 }
@@ -140,6 +148,12 @@ posterior_chit <- as.data.frame(glm.chit.org)
 posterior_prot <- as.data.frame(glm.prot.org)
 posterior_growth <- as.data.frame(glm.growth_cult)
 posterior_resp <- as.data.frame(glm.treatment_resp)
+
+pchit_pred <- ggpredict(glm.chit.org, "treatment")
+pprot_pred <- ggpredict(glm.prot.org, "treatment")
+pgrowth_pred <- ggpredict(glm.growth_cult, "treatment")
+presp_pred <- ggpredict(glm.treatment_resp, "treatment")
+
 
 pchit_melt <- posterior_chit[,1:3]
 pprot_melt <- posterior_prot[,1:3]
@@ -305,9 +319,9 @@ ggplot(posterior4, aes(x = parameter,
 #### CHITINASE ACTIVITY ####
 data_filt2 <- data_filt
 data_filt2$chitinase_rate_uM_per_min <- ifelse(data_filt2$chitinase_rate_uM_per_min <= 0, 0.001, data_filt2$chitinase_rate_uM_per_min)
-#glm_treatment_chitall<- brm(chitinase_rate_uM_per_min ~ treatment+ (1|day), data= data_filt2,
-#family = Gamma(link = "log"), iter = 10000, chains = 4, cores = 4,control = list(adapt_delta = 0.999, stepsize = 0.001, max_treedepth=20))
-#saveRDS(glm_treatment_chitall, "glm_treatment_chitall.RDS")
+glm_treatment_chitall<- brm(chitinase_rate_uM_per_min ~ treatment+ (1|day), data= data_filt2,
+family = Gamma(link = "log"), iter = 10000, chains = 4, cores = 4,control = list(adapt_delta = 0.999, stepsize = 0.001, max_treedepth=20))
+saveRDS(glm_treatment_chitall, "glm_treatment_chitall.RDS")
 glm_treatment_chitall<-readRDS("glm_treatment_chitall.RDS")
 pp_check(glm_treatment_chitall)
 
@@ -487,6 +501,24 @@ ggplot(data=data_filt,aes(x = treatment, y = carbon1_content_grams, group_by=tre
 level_order2 <- c("CommA", "CommB", "CommC", "ACM", "WATER") 
 
 # pitcher length
+day1_len <- filter(data_filt, day == "1")
+day8_len <- filter(data_filt, day == "8")
+day15_len <- filter(data_filt, day == "15")
+
+glm_treatment_lengthday1<- brm(pitcher_length_cm ~ treatment, data= day1_len, family=Gamma(link="log"), iter = 20000, chains = 4, cores = 4, control = list(adapt_delta = 0.999, max_treedepth = 20))
+glm_treatment_lengthday8<- brm(pitcher_length_cm ~ treatment, data= day8_len, family=Gamma(link="log"), iter = 20000, chains = 4, cores = 4, control = list(adapt_delta = 0.999, max_treedepth = 20))
+glm_treatment_lengthday15<- brm(pitcher_length_cm ~ treatment, data= day15_len, family=Gamma(link="log"), iter = 20000, chains = 4, cores = 4, control = list(adapt_delta = 0.999, max_treedepth = 20))
+
+summary(glm_treatment_lengthday1)
+mcmc_plot(glm_treatment_lengthday1, regex_pars="b_", prob=.95, prob_outer=.95)+
+  theme_classic() 
+mcmc_plot(glm_treatment_lengthday8, regex_pars="b_", prob=.95, prob_outer=.95)+
+  theme_classic() 
+mcmc_plot(glm_treatment_lengthday15, regex_pars="b_", prob=.95, prob_outer=.95)+
+  theme_classic() 
+
+
+
 glm_treatment_length2<- brm(pitcher_length_cm ~ treatment+week+(1|plant_number), data= data_filt, family=Gamma(link="log"), iter = 20000, chains = 4, cores = 4, control = list(adapt_delta = 0.999, max_treedepth = 20))
 mcmc_plot(glm_treatment_length2)
 
@@ -1021,9 +1053,8 @@ ggplot(data=wide, aes(x=CommC_mean,
 data_filt <- data_filt %>% arrange(desc(treatment))
 data_filt$treatment <- relevel(data_filt$treatment, ref = "ACM")
 
-#treatment ~ leaf 1 biomass
-#mbiomass <- brm(drymass_leaf1_grams ~ treatment,data=data_filt, family=Gamma(link="log"), iter = 10000, chains = 4, cores = 4)
-#saveRDS(mbiomass, file = "brms_mbiomass_ACMlevel.RDS")
+mbiomass <- brm(drymass_leaf1_grams ~ treatment,data=data_filt, family=Gamma(link="log"), iter = 10000, chains = 4, cores = 4)
+saveRDS(mbiomass, file = "brms_mbiomass_ACMlevel.RDS")
 mbiomass <- readRDS("brms_mbiomass_ACMlevel.RDS")
 summary(mbiomass)
 pp_check(mbiomass)
@@ -1047,7 +1078,7 @@ nrow(WATER)/nrow(posterior_mbiomass) #the probability of direction 0.8125
 posterior_mbiomass_melt <- posterior_mbiomass[,1:5]
 posterior_mbiomass_melt <- reshape2::melt(posterior_mbiomass_melt)
 
-#Fig2B
+
 level_order <- c("b_treatmentWATER", "b_treatmentCommC", "b_treatmentCommB", "b_treatmentCommA", "b_Intercept") 
 ggplot(posterior_mbiomass_melt, aes(x = value, y =factor(variable, level = level_order),
   fill = variable)) +
@@ -1057,6 +1088,20 @@ ggplot(posterior_mbiomass_melt, aes(x = value, y =factor(variable, level = level
   ylab("Probability density") +
   theme_classic() + xlab("")+
   scale_fill_manual(values=c("#5C4033","#004488", "#ffaf49", "#44b7c2", "gray"))
+
+#Fig3B remove intercept
+posterior_mbiomass_melt_filt <- subset(posterior_mbiomass_melt, variable != "b_Intercept")
+ggplot(posterior_mbiomass_melt_filt, aes(x = value, y =factor(variable, level = level_order),
+                                    fill = variable)) +
+  stat_halfeye(alpha=.6) +
+  geom_vline(aes(xintercept=0), 
+             color="black", size=1, linetype="dashed")+
+  ylab("Probability density") +
+  theme_classic() + xlab("")+
+  scale_fill_manual(values=c("#004488", "#ffaf49", "#44b7c2", "gray"))+
+  theme(legend.position = "none")
+
+
 
 level_order2 <- c("CommA", "CommB", "CommC", "ACM", "WATER") 
 
@@ -1080,7 +1125,7 @@ ggplot(data_filt,
     axis.title.y = element_text(color = "black", size = 24)
   )
 
-#### leaf nutrients ~ enzyme activity or treatment ####
+#### leaf nutrients ~ treatment ####
 m2 <- brm(nitrogen1_content_grams ~ treatment, data=data_filt, family=Gamma(link="log"), iter = 10000, chains = 4, cores = 4) 
 m4 <- brm(carbon1_content_grams ~ treatment, data=data_filt, family=Gamma(link="log"), iter = 10000, chains = 4, cores = 4) 
 
@@ -1154,6 +1199,21 @@ ggplot(posterior_ncontent_melt, aes(x = value, y =factor(variable, level = level
   ylab("Probability density") +
   theme_classic() + xlab("")+
   scale_fill_manual(values=c("#5C4033","#004488", "#ffaf49", "#44b7c2", "gray"))+ theme(legend.position = "none")
+
+#Fig 3D, intercept removed
+posterior_ncontent_melt_filt <- subset(posterior_ncontent_melt, variable !="b_Intercept")
+
+ggplot(posterior_ncontent_melt_filt, aes(x = value, y =factor(variable, level = level_order),
+                                    fill = variable)) +
+  stat_halfeye(alpha=.6) +
+  geom_vline(aes(xintercept=0), 
+             color="black", size=1, linetype="dashed")+
+  ylab("Probability density") +
+  theme_classic() + xlab("")+
+  scale_fill_manual(values=c("#004488", "#ffaf49", "#44b7c2", "gray"))+ theme(legend.position = "none")
+
+
+
 
 #m4, carbon~treatment
 posteriorm4 <- mcmc_intervals_data(m4, 
